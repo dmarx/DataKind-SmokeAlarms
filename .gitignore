@@ -5,3 +5,4 @@
 .*.xlsx
 .*.pyc
 .*.part
+data/*
