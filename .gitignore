@@ -1,6 +1,7 @@
-.Rproj.user
-.Rhistory
-.RData
-.csv
-.xlsx
-.pyc
+.*.Rproj.user
+.*.Rhistory
+.*.RData
+.*.csv
+.*.xlsx
+.*.pyc
+.*.part
