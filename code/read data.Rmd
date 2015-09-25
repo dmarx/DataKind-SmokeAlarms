@@ -1,0 +1,135 @@
+---
+title: "read data"
+author: "Xianghui Dong"
+date: "08.17.2015"
+output: html_document
+mathjax: null
+---
+## Read all data into environment
+
+### load libraries
+```{r libraries}
+require(data.table)
+require(bit64)
+require(foreign)
+require(lubridate)
+```
+
+### NFIRS fire incident data
+	- Download from [FEMA](https://www.fema.gov/media-library/resources-documents#{%22type%22:%5B%22DocumentContainerAsset%22%5D,%22sort%22:%22relevance%22,%22keywords%22:%22NFIRS%22}). 
+
+		data year	| format
+		------------|-------
+		1999 ~ 2001 | csv
+		2002 ~ 2009 | excel
+		2010 ~ 2011 | dbf
+	
+		However, all excel data only have about half the content because Excel have 1,048,576 rows limit per worksheet.
+
+	- Or order cd-rom from NFIRS, the newest data available is for 2013. They should be in dbf format.
+	- We also have fire incident and casualties data with address matched from Red Cross, which only have time and address. The NFIRS original data have more information so we are not using it this time. The date column in nfirs-deaths.csv is wrong.
+	- NFIRS recommend to analysis only with NFIRS 5.0 data. 2005 ~ 2009 have more than 95% in native 5.0, non-native 5.0 data were converted to 5.0. NFIRS upgraded to NFIRS 5.0 completely starting from 2009.
+	- In summary, right now we only have complete data of 2010 and 2011. After the ordered cd-rom arrived, we can expand the base data to 2009 ~ 2013, and use 2005 ~ 2008 data cautiously
+
+```{r read NFIRS data}
+## ---- NFIRS data 2010 ~ 2011, files were added year prefix, and certain inconsistency were changed like civilian ----
+# make a data file/path list to read them in batch into a named list.
+data_list = readLines('data/NFIRS/dataFiles.txt')
+data_list = gsub("\\\\", "/", data_list)
+data_2010_11 = lapply(data_list[grep('dbf', data_list)], read.dbf, as.is = FALSE)
+names(data_2010_11) = gsub(".*/(.*)\\..*", "\\1", data_list[grep('dbf', data_list)])
+data_all = lapply(data_2010_11, data.table)
+names(data_all) # code lookup is same for each year
+# ---- this could be used for 1999 ~ 2001 csv, though not sure the value of them ----
+# data_2007_09 = lapply(data_list[grep('csv', data_list)], fread, sep = ',', header = TRUE, stringsAsFactors=FALSE, verbose = TRUE) # know which one have error 
+# names(data_2007_09) = gsub(".*/(.*)\\..*", "\\1", data_list[grep('csv', data_list)])
+# # 2009 don't have firefighter casualty
+# data_all = c(data_2007_09, lapply(data_2010_11, data.table))
+
+# ---- NFIRS data 2008 - 2012 from red cross, fire incident and casualties with address ----
+# RC_fire_incidents = fread("data/NFIRS/NFIRS_FireIncidents_sample.csv", sep = ',', header = TRUE, stringsAsFactors=FALSE)
+# RC_fire_incidents[, inc_date_parsed := parse_date_time(inc_date, 'mdy')]
+# NFIRS_FireIncidents.csv match incident address to arc gis
+# nfirs-deaths.csv have address, date(format wrong), death count
+# NFIRS_deaths_2008_12 = fread("data/NFIRS/nfirs-deaths.csv",sep = ',', header = TRUE, stringsAsFactors=FALSE)
+# NFIRS_injuries_2008_12 = fread("data/NFIRS/nfirs-injuries.csv",sep = ',', header = TRUE, stringsAsFactors=FALSE)
+# NFIRS_injuries_2008_12[, inj_date := parse_date_time(date, 'mdy')]
+
+```
+
+### Set keys for NFIRS tables as unique id
+
+- NFIRS tables came from relational database, each table can be uniquely identified with combination of certain columns.
+- `STATE, FDID, INC_DATE, INC_NO, and EXP_NO` identify these incident-associated records:
+    - basic incident (basicincident.dbf)
+    - fire incident (fireincident.dbf)
+    - incident address (incidentaddress.dbf)
+- These tables need an additional field to create a unique identifier:
+
+	database                 | additional field
+	------------------------ | ----------------
+	civiliancasualty.dbf     | SEQ_NUMBER
+	firefightercasualty.dbf  | FF_SEQ_NO
+
+
+```{r set keys for data table before join}
+grep("basicincident|fireincident|incidentaddress", names(data_all), value = TRUE)
+grep("civiliancasualty|ffcasualty", names(data_all), value = TRUE)
+lapply(data_all[grep("basicincident|fireincident|incidentaddress", names(data_all))], setkey,
+       STATE, FDID, INC_DATE, INC_NO, EXP_NO) # no "" if using setkey.
+lapply(data_all[grep("civiliancasualty", names(data_all))], setkey, 
+       STATE, FDID, INC_DATE, INC_NO, EXP_NO, SEQ_NUMBER)
+lapply(data_all[grep("ffcasualty", names(data_all))], setkey, 
+       STATE, FDID, INC_DATE, INC_NO, EXP_NO, FF_SEQ_NO)
+```
+
+### Fire Departments coverage
+
+- About 2/3 fire departments report to NFIRS. NFIRS said there is no accurate list of reporting fire departments. There is a fdheader.dbf included in public release data, but it includes many departments that no longer report or even no longer exist. And many fire departments don't have complete information like zipcode.
+- There is a [list of fire departments](http://apps.usfa.fema.gov/census-download/main/download) that registered in Census, though it still may not cover all fire departments. A simple check found many departments reporting to NFIRS not included in CENSUS list. This list do have complete information for each department. Note the station list in website is not complete.
+- 27193 registered with Census
+- NFPA estimated national total of 30145 departments in 2011 -- page 4 of [Data Sources and Methodology Documentation](http://www.usfa.fema.gov/downloads/pdf/statistics/data_sources_methodology.pdf)
+- The above document also calculated 20680 departments reporting to 2011 NFIRS. Our count from NFIRS 2011 is 21915.
+
+```{r read fire departments coverage}
+# ---- fire departments registered with the Census ----
+national_FDlist_in_census = fread("data/NFIRS/usfa-census-national.txt",sep = ',', header = TRUE, stringsAsFactors=FALSE) # 27193 dept
+# adjsut column names to compare with NFIRS fire department information
+setnames(national_FDlist_in_census, "HQ State", "STATE") 
+setkey(national_FDlist_in_census, "STATE", "FDID")
+# ---- count fire department in NFIRS data, page 4 of data_sources_methodology.pdf have a table ----
+# This method assuming each reporting fire department at least reported once
+fdlist_all =lapply(data_all[grep("basicincident", names(data_all))], FUN = function(x)(x[, .N, by = .(STATE, FDID)]))
+lapply(fdlist_all, nrow) # 21502 21915
+# ---- fdheader.dbf have 38360 rows ----
+nrow(data_all$`2010fdheader`)
+```
+
+### Red Cross Diaster Response and Smoke Alarm home visit data
+
+```{r read RC response and home visit data}
+## ---- Red Cross response data ----
+RC_response = fread("data/RedCrossDiasterCases/2009-2014_RedCross_DisasterCases.csv",sep = ',', header = TRUE, stringsAsFactors=FALSE)
+data_all$`2007basicincident`[grep('111', INC_TYPE), sum(OTH_INJ, na.rm = TRUE)]
+table(RC_response$dr_type)
+table(RC_response$event_type_new_categories)
+RC_fire_response = RC_response[event_type_new_categories == 'Fire']
+RC_fire_response[, incident_date := parse_date_time(incident_disaster_date, 'mdy')]
+table(RC_fire_response$dr_type) # assuming only "Incident" is interested
+table(RC_fire_response$event_type_old_categories)
+## ---- Red Cross Home visits data ----
+RC_home_visit_1 = fread("data/RedCrossHomeVisit/HomeFire_SmokeAlarmInstalls.csv", sep=',', header = TRUE, stringsAsFactors=FALSE)
+RC_home_visit_2 = fread("data/RedCrossHomeVisit/201409-201507_HomeFire_SmokeAlarmInstalls.csv", sep=',', header = TRUE, stringsAsFactors=FALSE, colClasses=list(character=c("Email","Other_Phon")))
+# see as.Date example, assuming home visit 1 data came from windows excel
+RC_home_visit_1[, data_entry_date:= as.Date(data_entry, origin = "1899-12-30")]
+RC_home_visit_2[, Date := parse_date_time(`Date Fixed`, 'ymd')]
+RC_home_visit_2[, Date_In := parse_date_time(Date_of_In, 'mdy')]
+# is data 2 a superset of data 1? yes.
+
+
+```
+
+```{r save environment}
+save.image(paste0(today(), '.RData'), safe = FALSE) 
+```
+
