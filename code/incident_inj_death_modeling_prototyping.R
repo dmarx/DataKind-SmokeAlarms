@@ -191,6 +191,9 @@ table(predict(mod_casualty_rf, train_centrImp),
 table(predict(mod_casualty_rf, train), 
       train_centrImp$target=="no_inj") / nrow(train_centrImp)
 
+save(mod_casualty_rf, file="models/mod_casualty_rf_prototype.Rdata")
+##################################################################3
+
 ?glm
 #mod_casualty = glm.fit(x=train[,-"target", with=FALSE], 
 #                       y=train[,target=="no_inj"], 
