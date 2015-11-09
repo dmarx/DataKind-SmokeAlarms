@@ -1,11 +1,11 @@
 library(data.table)
 
 #' This contains the "data_all" object, which contains NFIRS database tables.
-load("E:/Projects/DataKind/SmokeAlarms/data/rdata/2015-09-16.RData")
+load("data/rdata/2015-09-16.RData")
 
 #' Let's use zcta-tract relationships to assign tracts to zip codes. Where there is a many to one or many to many, use all
 #' permutations.
-zcta = read.csv("E:/Projects/DataKind/SmokeAlarms/data/raw/census/zcta_tract_rel_10.txt"
+zcta = read.csv("data/raw/census/zcta_tract_rel_10.txt"
                 ,colClasses="character"
 )
 zcta   = data.table(zcta)
@@ -114,7 +114,7 @@ gc()
 
 
 # Let's save this object
-save(inc, file="E:/Projects/DataKind/SmokeAlarms/data/rdata/inc.rdata")
+save(inc, file="data/rdata/inc.rdata")
 
 if(FALSE){
   dim(inc) # 4139054      12
