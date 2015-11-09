@@ -55,6 +55,8 @@ ix = unbalanced_downsample(inc[,target],
 #head(inc[,.(geoid, geoid2)])
 #head(inc[ix,.(geoid, geoid2)])
 
+table(inc$target)
+
 inc = inc[ix]
 
 drop_vars = c("county_fip", "county_fip_full",
@@ -100,6 +102,7 @@ train = train[,-drop_ix2, with=FALSE]
 ###############################
 train[,populationdensitypersquaremile20:=gsub(",","",populationdensitypersquaremile20)]
 train[,populationdensitypersquaremile20:=gsub('"','',populationdensitypersquaremile20)]
+sl2[populationdensitypersquaremile20==".", populationdensitypersquaremile20:=NA]
 train[,populationdensitypersquaremile20:=as.numeric(populationdensitypersquaremile20)]
 
 train[,tractpopulation2010:=gsub(",","",tractpopulation2010)]
