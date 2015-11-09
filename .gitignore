@@ -6,3 +6,4 @@
 .*.pyc
 .*.part
 data/*
+.Rproj.user
